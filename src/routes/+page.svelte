@@ -1,13 +1,22 @@
+<!-- src/routes/+page.svelte -->
 <script>
 	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { RealtimeAgentService } from '$lib/services/realtimeAgentService';
 	import { RecordingService } from '$lib/services/recordingService';
+	import { conversationService } from '$lib/services/conversationService';
+	import { authStore } from '$lib/stores/authStore';
 	import MicIndicator from '$lib/components/MicIndicator.svelte';
 	import ConversationView from '$lib/components/ConversationView.svelte';
 	import ConnectionStatus from '$lib/components/ConnectionStatus.svelte';
 	import RecordingControls from '$lib/components/RecordingControls.svelte';
 	import AudioPlayback from '$lib/components/AudioPlayback.svelte';
 	import DebugPanel from '$lib/components/DebugPanel.svelte';
+	import ConversationHistory from '$lib/components/ConversationHistory.svelte';
+
+	// 인증 상태
+	let user = $state(null);
+	let isLoggingOut = $state(false);
 
 	// 실시간 회화 상태
 	let agentService = null;
@@ -24,6 +33,11 @@
 	let networkRequests = $state([]);
 	let showDebugPanel = $state(false);
 
+	// 대화 기록 관련 상태
+	let conversationHistory = $state([]);
+	let isLoadingHistory = $state(false);
+	let showHistory = $state(false);
+
 	// 녹음 기능 상태 (부가 기능)
 	let showRecordingSection = $state(false);
 	let isRecording = $state(false);
@@ -37,6 +51,15 @@
 	let canvasRef = $state(null);
 
 	onMount(() => {
+		// 인증 상태 구독
+		const unsubscribeAuth = authStore.subscribe((state) => {
+			user = state.user;
+			// 로그인되지 않았으면 로그인 페이지로 리다이렉트
+			if (state.initialized && !state.user) {
+				goto('/login');
+			}
+		});
+
 		agentService = new RealtimeAgentService();
 		recordingService = new RecordingService();
 		
@@ -64,7 +87,13 @@
 			}
 		}, 1000);
 
+		// 사용자가 로그인되어 있으면 대화 기록 로드
+		if (user) {
+			loadConversationHistory();
+		}
+
 		return () => {
+			unsubscribeAuth();
 			clearInterval(networkRequestMonitor);
 			// 컴포넌트 언마운트 시 정리
 			if (agentService) {
@@ -80,6 +109,45 @@
 			}
 		};
 	});
+
+	// 대화 기록 로드 함수
+	async function loadConversationHistory() {
+		if (!user) return;
+		
+		isLoadingHistory = true;
+		try {
+			const result = await conversationService.getConversationLogs(user.id, {
+				limit: 50,
+				offset: 0,
+				orderBy: 'timestamp',
+				descending: true
+			});
+			
+			if (result.success) {
+				conversationHistory = result.data || [];
+			} else {
+				console.error('대화 기록 로드 실패:', result.error);
+			}
+		} catch (error) {
+			console.error('대화 기록 로드 중 예외 발생:', error);
+		} finally {
+			isLoadingHistory = false;
+		}
+	}
+
+	async function handleLogout() {
+		if (isLoggingOut) return;
+		
+		isLoggingOut = true;
+		const result = await authStore.signOut();
+		
+		if (result.success) {
+			goto('/login');
+		} else {
+			console.error('로그아웃 실패:', result.error);
+			isLoggingOut = false;
+		}
+	}
 
 	async function startConversation() {
 		if (isConnecting || isConnected) {
@@ -199,6 +267,23 @@
 					}, 1000);
 				}, 500); // 0.5초 지연으로 리소스 정리 시간 확보
 			}
+
+			// 대화 기록 저장 (로그인된 사용자이고 기록이 있는 경우)
+			if (user && conversationLog.length > 0) {
+				try {
+					const result = await conversationService.saveConversationLogs(user.id, conversationLog);
+					if (result.success) {
+						console.log(`대화 기록 저장 완료: ${result.count}개 메시지`);
+						// 저장 후 기록 목록 새로고침
+						loadConversationHistory();
+					} else {
+						console.error('대화 기록 저장 실패:', result.error);
+					}
+				} catch (error) {
+					console.error('대화 기록 저장 중 예외 발생:', error);
+				}
+			}
+
 			conversationLog = [];
 			connectionStatus = 'disconnected';
 			console.log('Conversation stopped successfully');
@@ -280,13 +365,46 @@
 						<h1 class="text-3xl font-bold text-white mb-2">AI 영어 선생님</h1>
 						<p class="text-gray-400">실시간 영어 회화 연습</p>
 					</div>
-					<button
-						type="button"
-						onclick={() => showRecordingSection = !showRecordingSection}
-						class="text-gray-400 hover:text-white transition-colors text-sm"
-					>
-						{showRecordingSection ? '녹음 기능 숨기기' : '녹음 기능 보기'}
-					</button>
+					<div class="flex items-center gap-4">
+						{#if user}
+							<div class="flex items-center gap-3">
+								<div class="text-right">
+									<p class="text-sm text-gray-300">{user.email}</p>
+									<p class="text-xs text-gray-500">로그인 중</p>
+								</div>
+								<button
+									type="button"
+									onclick={handleLogout}
+									disabled={isLoggingOut}
+									class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+								>
+									{isLoggingOut ? '로그아웃 중...' : '로그아웃'}
+								</button>
+							</div>
+						{/if}
+						<button
+							type="button"
+							onclick={() => showRecordingSection = !showRecordingSection}
+							class="text-gray-400 hover:text-white transition-colors text-sm"
+						>
+							{showRecordingSection ? '녹음 기능 숨기기' : '녹음 기능 보기'}
+						</button>
+						<button
+							type="button"
+							onclick={() => {
+								showHistory = !showHistory;
+								if (showHistory && conversationHistory.length === 0) {
+									loadConversationHistory();
+								}
+							}}
+							class="text-gray-400 hover:text-white transition-colors text-sm flex items-center gap-2"
+						>
+							<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+							</svg>
+							{showHistory ? '기록 숨기기' : '대화 기록'}
+						</button>
+					</div>
 				</div>
 			</div>
 
@@ -349,7 +467,7 @@
 
 		<!-- 녹음 기능 (접을 수 있는 섹션) -->
 		{#if showRecordingSection}
-			<div class="bg-gray-800 rounded-2xl shadow-2xl border border-gray-700 p-6">
+			<div class="bg-gray-800 rounded-2xl shadow-2xl border border-gray-700 p-6 mb-6">
 				<h2 class="text-xl font-bold text-white mb-4">음성 녹음</h2>
 				
 				<RecordingControls
@@ -368,6 +486,34 @@
 					onPlayPause={handlePlayPause}
 					onPlayEnd={handlePlayEnd}
 				/>
+			</div>
+		{/if}
+
+		<!-- 대화 기록 (접을 수 있는 섹션) -->
+		{#if showHistory}
+			<div class="bg-gray-800 rounded-2xl shadow-2xl border border-gray-700 p-6 mb-6">
+				<div class="flex items-center justify-between mb-4">
+					<h2 class="text-xl font-bold text-white">대화 기록</h2>
+					<button
+						type="button"
+						onclick={loadConversationHistory}
+						disabled={isLoadingHistory}
+						class="text-gray-400 hover:text-white transition-colors text-sm flex items-center gap-2 disabled:opacity-50"
+					>
+						<svg class="w-4 h-4 {isLoadingHistory ? 'animate-spin' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+						</svg>
+						새로고침
+					</button>
+				</div>
+				
+				<div class="max-h-[600px] overflow-y-auto">
+					<ConversationHistory
+						history={conversationHistory}
+						isLoading={isLoadingHistory}
+						onRefresh={loadConversationHistory}
+					/>
+				</div>
 			</div>
 		{/if}
 

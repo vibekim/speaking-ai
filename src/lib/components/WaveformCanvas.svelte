@@ -1,3 +1,4 @@
+<!-- src/lib/components/WaveformCanvas.svelte -->
 <script>
 	import { onMount } from 'svelte';
 	import { resizeCanvas, clearCanvas } from '$lib/utils/canvasUtils';

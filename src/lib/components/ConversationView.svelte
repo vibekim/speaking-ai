@@ -1,3 +1,4 @@
+<!-- src/lib/components/ConversationView.svelte -->
 <script>
 	import { onMount } from 'svelte';
 	import { formatTime } from '$lib/utils/formatTime';

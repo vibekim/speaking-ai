@@ -1,3 +1,4 @@
+<!-- src/lib/components/ConnectionStatus.svelte -->
 <script>
 	let { 
 		connectionStatus = 'disconnected',

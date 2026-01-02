@@ -1,6 +1,9 @@
+<!-- src/lib/components/RealtimeConversation.svelte -->
 <script>
 	import { onMount } from 'svelte';
 	import { RealtimeAgentService } from '$lib/services/realtimeAgentService';
+	import { conversationService } from '$lib/services/conversationService';
+	import { authStore } from '$lib/stores/authStore';
 	import MicIndicator from './MicIndicator.svelte';
 
 	let { onClose = () => {} } = $props();
@@ -13,9 +16,16 @@
 	let connectionStatus = $state('disconnected'); // disconnected, connecting, connected
 	let verificationResult = $state(null);
 	let statusDetails = $state(null);
+	let user = $state(null);
+	let isSaving = $state(false);
 
 	onMount(() => {
 		agentService = new RealtimeAgentService();
+		
+		// 인증 상태 구독
+		const unsubscribeAuth = authStore.subscribe((state) => {
+			user = state.user;
+		});
 		
 		// 상태 변경 콜백 설정
 		agentService.setStatusChangeCallback((statusInfo) => {
@@ -26,6 +36,7 @@
 		});
 		
 		return () => {
+			unsubscribeAuth();
 			// 컴포넌트 언마운트 시 확실히 정리
 			if (agentService) {
 				// 즉시 모든 오디오 중지
@@ -142,6 +153,24 @@
 					console.log('Final verification:', finalVerification);
 				}, 1500);
 			}
+
+			// 대화 기록 저장 (로그인된 사용자이고 기록이 있는 경우)
+			if (user && conversationLog.length > 0) {
+				isSaving = true;
+				try {
+					const result = await conversationService.saveConversationLogs(user.id, conversationLog);
+					if (result.success) {
+						console.log(`대화 기록 저장 완료: ${result.count}개 메시지`);
+					} else {
+						console.error('대화 기록 저장 실패:', result.error);
+					}
+				} catch (error) {
+					console.error('대화 기록 저장 중 예외 발생:', error);
+				} finally {
+					isSaving = false;
+				}
+			}
+
 			conversationLog = [];
 			connectionStatus = 'disconnected';
 			console.log('Conversation stopped successfully');
@@ -217,6 +246,14 @@
 				<div class="flex items-center gap-3 text-gray-400">
 					<div class="w-3 h-3 bg-gray-500 rounded-full"></div>
 					<p class="text-sm">연결되지 않음</p>
+				</div>
+			{/if}
+
+			<!-- 저장 중 표시 -->
+			{#if isSaving}
+				<div class="flex items-center gap-3 text-blue-400">
+					<div class="w-3 h-3 bg-blue-500 rounded-full animate-pulse"></div>
+					<p class="text-sm">대화 기록 저장 중...</p>
 				</div>
 			{/if}
 

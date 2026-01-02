@@ -1,3 +1,4 @@
+<!-- src/lib/components/AudioPlayback.svelte -->
 <script>
 	import { downloadAudio } from '$lib/utils/audioUtils';
 	import { clearCanvas } from '$lib/utils/canvasUtils';

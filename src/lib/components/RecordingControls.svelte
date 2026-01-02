@@ -1,3 +1,4 @@
+<!-- src/lib/components/RecordingControls.svelte -->
 <script>
 	import { formatTime } from '$lib/utils/formatTime';
 

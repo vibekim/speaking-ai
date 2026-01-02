@@ -1,3 +1,4 @@
+<!-- src/lib/components/MicIndicator.svelte -->
 <div class="flex justify-center mb-6">
 	<div class="bg-gray-700 rounded-full px-6 py-3 border border-gray-600">
 		<div class="flex items-center gap-2">
